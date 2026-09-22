@@ -46,6 +46,11 @@ jobs:
       - name: No dangling relative imports
         run: npm run verify:imports
 
+      # 相对 import 的**具名导出**是否真的存在 —— 构建用 --noCheck，单测也覆盖不到 SDK 层，
+      # 所以"改了导出名忘了改引用"只能靠这道闸门拦（曾导致插件加载期 SyntaxError）
+      - name: Relative imports resolve to real exports
+        run: npm run verify:exports
+
       # 注意：`npm run verify:sdk` **不在这里跑** —— 它需要同级有一份 openclaw 源码
       # （默认 ../openclaw）来核对子路径与符号，CI 里没有。改动 SDK 用法时请在本地跑。
 

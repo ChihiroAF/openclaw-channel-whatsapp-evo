@@ -166,6 +166,31 @@ export function parseEvoChannelConfig(raw) {
 /** bind 时 controller 必须写入的字段（缺任何一个渠道都不工作；供测试与文档引用） */
 export const EVO_CHANNEL_CONFIG_REQUIRED_FIELDS = ["evoBaseUrl", "evoApiKey"];
 /**
+ * 渠道配置的 **JSON Schema** —— 运行时与清单共用的唯一真值。
+ *
+ * - 运行时：`config-schema.ts` 用它建 `buildJsonChannelConfigSchema`（不再依赖 zod）
+ * - 清单：`openclaw.plugin.json` 的 `channelConfigs["whatsapp-evo"].schema` 必须是它的**逐字副本**
+ *   （`src/__tests__/manifest-parity.test.ts` 会深度比对，漂移即测试红）
+ *
+ * `additionalProperties: false` 对应原来 zod 的 `.strict()`：controller 多写一个未声明的字段会
+ * **显式报错**而不是被静默忽略——把"写错字段名"从静默故障变成显式故障。
+ * `accounts` 是核心管理的多账号容器键，故在此放行。
+ */
+export const EVO_CHANNEL_CONFIG_JSON_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        enabled: { type: "boolean" },
+        evoBaseUrl: { type: "string", minLength: 1 },
+        evoApiKey: { type: "string", minLength: 1 },
+        evoInstanceId: { type: "string" },
+        dmPolicy: { type: "string", enum: ["open", "allowlist", "pairing"] },
+        allowFrom: { type: "array", items: { type: "string" } },
+        accounts: { type: "object" },
+    },
+    required: ["evoBaseUrl", "evoApiKey"],
+};
+/**
  * bind 时 controller 一起写入的准入字段。
  * 单独列出来是为了让"必须配准入"这件事在代码里可见——漏了它的表现是静默不回消息。
  */
