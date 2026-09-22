@@ -36,8 +36,9 @@
     "verify:sdk": "node scripts/verify-sdk-symbols.mjs",
     "verify:legacy": "node scripts/check-no-legacy-refs.mjs",
     "verify:imports": "node scripts/check-relative-imports.mjs",
+    "verify:manifest": "node scripts/verify-manifest.mjs",
     "verify:lockfile": "node scripts/check-lockfile-registry.mjs",
-    "verify": "npm run verify:sdk && npm run verify:legacy && npm run verify:imports && npm run verify:lockfile"
+    "verify": "npm run verify:sdk && npm run verify:manifest && npm run verify:legacy && npm run verify:imports && npm run verify:lockfile"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

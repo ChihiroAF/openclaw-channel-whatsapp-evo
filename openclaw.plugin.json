@@ -2,7 +2,7 @@
   "id": "whatsapp-evo",
   "name": "WhatsApp (via EVO)",
   "description": "WhatsApp through the EVO platform (Evolution API 2.x): the controller forwards events, this plugin answers customer messages with the agent and replies via EVO.",
-  "categories": ["messaging"],
+  "categories": ["channels"],
   "channels": ["whatsapp-evo"],
   "channelConfigs": {
     "whatsapp-evo": {
@@ -30,7 +30,7 @@
         "evoApiKey": {
           "label": "EVO API key",
           "sensitive": true,
-          "help": "Evolution API global key. Stored in the instance's openclaw.json only — never logged."
+          "help": "Evolution API global key. Stored in the instance's openclaw.json only 閳?never logged."
         },
         "evoInstanceId": {
           "label": "EVO instance name",
