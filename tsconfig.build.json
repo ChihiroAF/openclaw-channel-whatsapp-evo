@@ -1,0 +1,31 @@
+{
+  "//": "发布/安装用构建：产出 dist/*.js。git / npm 安装的插件必须自带编译产物——openclaw 发现阶段对 TS 入口要求存在已构建的 JS 候选（src/plugins/package-entry-resolution.ts:461-477），否则只留一条 warn 日志并 return null（插件不加载）。",
+  "//noCheck": "npm run build 用 --noCheck：SDK 层没装 openclaw（用 typings/ 的占位声明），对 any 化的 SDK 做类型检查只会产出假报错。真正的闸门是 npm test（纯逻辑层，完整类型检查）+ npm run verify:sdk（对着 openclaw 源码核对子路径与符号）。需要看 SDK 层报错时用 npm run build:checked。",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "typings/**/*.d.ts",
+    "index.ts",
+    "setup-entry.ts",
+    "api.ts",
+    "runtime-api.ts",
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/__tests__/**"
+  ]
+}

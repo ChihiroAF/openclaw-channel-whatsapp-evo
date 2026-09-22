@@ -1,0 +1,56 @@
+{
+  "id": "whatsapp-evo",
+  "name": "WhatsApp (via EVO)",
+  "description": "WhatsApp through the EVO platform (Evolution API 2.x): the controller forwards events, this plugin answers customer messages with the agent and replies via EVO.",
+  "categories": ["messaging"],
+  "channels": ["whatsapp-evo"],
+  "channelConfigs": {
+    "whatsapp-evo": {
+      "label": "WhatsApp (via EVO)",
+      "description": "EVO endpoint + credentials written into openclaw.json by the controller at bind time.",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "evoBaseUrl": { "type": "string", "minLength": 1 },
+          "evoApiKey": { "type": "string", "minLength": 1 },
+          "evoInstanceId": { "type": "string" },
+          "dmPolicy": { "type": "string", "enum": ["open", "allowlist", "pairing"] },
+          "allowFrom": { "type": "array", "items": { "type": "string" } },
+          "accounts": { "type": "object" }
+        },
+        "required": ["evoBaseUrl", "evoApiKey"]
+      },
+      "uiHints": {
+        "evoBaseUrl": {
+          "label": "EVO base URL",
+          "help": "Evolution API base URL, e.g. https://ev-api.example.com. Written by the controller at bind time."
+        },
+        "evoApiKey": {
+          "label": "EVO API key",
+          "sensitive": true,
+          "help": "Evolution API global key. Stored in the instance's openclaw.json only — never logged."
+        },
+        "evoInstanceId": {
+          "label": "EVO instance name",
+          "advanced": true,
+          "help": "Fallback EVO instance name. Normally taken from the X-Evo-Instance header on inbound requests."
+        },
+        "dmPolicy": {
+          "label": "DM policy",
+          "help": "open replies to everyone (requires allowFrom to contain \"*\"); pairing/allowlist restrict senders."
+        },
+        "allowFrom": {
+          "label": "Allowed senders",
+          "help": "Use [\"*\"] together with dmPolicy \"open\". An absent list plus pairing silently blocks every customer."
+        }
+      }
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

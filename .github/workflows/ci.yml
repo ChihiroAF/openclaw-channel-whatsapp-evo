@@ -1,0 +1,59 @@
+name: ci
+
+# 目的：**防止"装上去却不加载"的那类静默故障**。
+# 最关键的一条是 dist 新鲜度检查——git 安装的插件必须自带编译产物，
+# 忘记 `npm run build` 就 push 的后果是"插件不加载、且只在实例日志里留一条 warn"。
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # 纯逻辑层：完整类型检查（strict + noUncheckedIndexedAccess）+ 单测
+      - name: Unit tests (pure layer)
+        run: npm test
+
+      # 旧方案残留（Meta Cloud API / whatsapp-cloud 时代的标识与悬空引用）
+      - name: No legacy references
+        run: npm run verify:legacy
+
+      # 相对 import 是否都指向真实文件（纯逻辑层单测覆盖不到）
+      - name: No dangling relative imports
+        run: npm run verify:imports
+
+      # 注意：`npm run verify:sdk` **不在这里跑** —— 它需要同级有一份 openclaw 源码
+      # （默认 ../openclaw）来核对子路径与符号，CI 里没有。改动 SDK 用法时请在本地跑。
+
+      - name: Build dist
+        run: npm run build
+
+      # 🔴 核心检查：dist 必须与源码同步（即"已提交"且"不过期"）。
+      # 失败通常意味着忘了 `npm run build` 并提交 dist。
+      - name: dist is up to date and committed
+        run: |
+          if [ -n "$(git status --porcelain -- dist)" ]; then
+            echo "::error::dist/ 未提交或已过期。请在本地运行 'npm run build' 并提交 dist/。"
+            git status --porcelain -- dist
+            exit 1
+          fi
+          test -f dist/index.js || { echo "::error::dist/index.js 不存在"; exit 1; }
+          test -f dist/setup-entry.js || { echo "::error::dist/setup-entry.js 不存在"; exit 1; }
+          echo "dist 与源码一致 ✓"

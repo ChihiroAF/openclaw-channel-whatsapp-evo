@@ -1,0 +1,27 @@
+# 依赖与构建产物
+node_modules/
+dist-pure/
+
+# ⚠️ dist/ 是**故意提交**的，不要加进来。
+# 原因：openclaw 安装 git / npm 来源的插件时，要求包内自带已构建的 JS 入口
+# （src/plugins/package-entry-resolution.ts:461-477：TS 入口没有对应 JS 候选就
+# 只推一条 warn 然后 return null —— 插件不加载且不报错）。
+# 而实例是直接从 Git 分支/tag 安装的，没有构建步骤。
+# ⇒ 提交前必须 `npm run build`，CI 里有一条"dist 是否过期"的检查兜住。
+
+# npm pack 产物（发布用临时文件，不入库）
+*.tgz
+
+# 本地运行/测试残留
+*.log
+coverage/
+
+# 密钥与环境文件（本插件不应有任何凭证：EVO key 由 controller 在 bind 时写入实例 openclaw.json）
+.env
+.env.*
+
+# 编辑器 / 操作系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

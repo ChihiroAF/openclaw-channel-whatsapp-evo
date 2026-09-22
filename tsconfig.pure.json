@@ -1,0 +1,29 @@
+{
+  "//": "离线可验证子集：只包含不依赖 openclaw SDK 的模块（P0 消息主链路 + 纯逻辑），用于在本机没有安装 openclaw 时也能编译并跑单测。",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist-pure",
+    "rootDir": ".",
+    "declaration": false,
+    "sourceMap": true
+  },
+  "include": [
+    "src/constants.ts",
+    "src/logger.ts",
+    "src/config-fields.ts",
+    "src/accounts.ts",
+    "src/payload.ts",
+    "src/evo-client.ts",
+    "src/outbound.ts",
+    "src/__tests__/**/*.ts"
+  ]
+}
