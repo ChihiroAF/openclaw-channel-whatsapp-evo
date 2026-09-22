@@ -8,7 +8,7 @@
  * `cfg` 刻意按 `unknown` 处理并在内部收窄：这样即使没有安装 openclaw、拿不到它的配置类型，
  * 本模块也能独立编译与测试。
  */
-import { checkEvoAccessConfig, evoChannelConfigSchema } from "./config-fields.js";
+import { checkEvoAccessConfig, parseEvoChannelConfig } from "./config-fields.js";
 import { WABA_EVO_CHANNEL_ID } from "./constants.js";
 /** v1 只有单账号；保留常量是为了与核心的多账号约定兼容 */
 export const DEFAULT_ACCOUNT_ID = "default";
@@ -65,7 +65,7 @@ function unconfiguredAccount(accountId, reason) {
  *
  * - 配置段缺失/不合法 ⇒ `configured:false` 并带上原因（**不抛异常**：抛异常会让核心在
  *   每次读配置时炸掉，而"未配置"本来就是一个正常状态——插件还没被 bind）。
- * - 凭证**不落日志**：`configError` 只包含 zod 的字段级消息，不含字段值。
+ * - 凭证**不落日志**：`configError` 只包含字段级消息（字段路径 + 原因），不含字段值。
  */
 export function resolveEvoAccount(params) {
     const accountId = params.accountId ?? DEFAULT_ACCOUNT_ID;
@@ -82,9 +82,9 @@ export function resolveEvoAccount(params) {
     }
     const override = readAccountOverride(section, accountId);
     const merged = { ...channelLevel, ...(override ?? {}) };
-    const parsed = evoChannelConfigSchema.safeParse(merged);
-    if (!parsed.success) {
-        const detail = parsed.error.issues
+    const parsed = parseEvoChannelConfig(merged);
+    if (!parsed.ok) {
+        const detail = parsed.issues
             .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
             .join("; ");
         return unconfiguredAccount(accountId, `invalid channels.${WABA_EVO_CHANNEL_ID} config: ${detail}`);
@@ -106,7 +106,7 @@ export function resolveEvoAccount(params) {
         ...(accessWarning === undefined ? {} : { accessWarning }),
     };
 }
-/** 供 zod 校验失败时做断言用的类型守卫（测试/日志用） */
+/** 供校验失败时做断言用的类型守卫（测试/日志用） */
 export function isValidEvoChannelConfig(raw) {
-    return evoChannelConfigSchema.safeParse(raw).success;
+    return parseEvoChannelConfig(raw).ok;
 }

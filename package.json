@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "OpenClaw channel plugin for the EVO platform (Evolution API) — receives EVO-standardized WhatsApp messages, answers through the agent runtime, and sends replies back via EVO.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChihiroAF/openclaw-channel-whatsapp-evo.git"
+  },
+  "homepage": "https://github.com/ChihiroAF/openclaw-channel-whatsapp-evo#readme",
+  "bugs": {
+    "url": "https://github.com/ChihiroAF/openclaw-channel-whatsapp-evo/issues"
+  },
   "type": "module",
   "exports": {
     ".": "./index.ts",
@@ -28,7 +36,8 @@
     "verify:sdk": "node scripts/verify-sdk-symbols.mjs",
     "verify:legacy": "node scripts/check-no-legacy-refs.mjs",
     "verify:imports": "node scripts/check-relative-imports.mjs",
-    "verify": "npm run verify:sdk && npm run verify:legacy && npm run verify:imports"
+    "verify:lockfile": "node scripts/check-lockfile-registry.mjs",
+    "verify": "npm run verify:sdk && npm run verify:legacy && npm run verify:imports && npm run verify:lockfile"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
@@ -56,8 +65,5 @@
       "blurb": "WhatsApp through the EVO platform (Evolution API): EVO handles Meta verification, dedupe and delivery; this plugin answers customer messages with the agent.",
       "order": 77
     }
-  },
-  "dependencies": {
-    "zod": "^4.6.5"
   }
 }

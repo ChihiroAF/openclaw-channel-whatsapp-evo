@@ -2,6 +2,20 @@
 node_modules/
 dist-pure/
 
+# ⚠️ package-lock.json **必须提交**，但提交前必须把 `resolved` 规范化。
+# 2026-09-22 实测，两个后果都很贵：
+#  ① **不能带内网 host**：开发机的 npm registry 常被配成内网镜像（Nexus / Artifactory），
+#     npm 会把绝对 tarball URL 冻进 resolved。公开仓库里出现内网主机名 = 信息披露。
+#  ② **不能删**：实例走 `openclaw plugins install git:…` → git clone → `npm install --omit=dev`。
+#     冷缓存实验（registry 指向死端口）结论：
+#       有 lockfile + --omit=dev ⇒ exit 0，一个字节都不下载（完全离线可装）
+#       没有 lockfile + --omit=dev ⇒ exit 1，npm 仍要联网解析 devDependencies 元数据
+#     ⇒ lockfile 正是"实例里不联网也能装"的前提。
+# 提交前处理：把内网 registry 前缀整段替换为 https://registry.npmjs.org/ ，
+# 然后 `npm run verify:lockfile`（已并入 `npm run verify`）会守住这条。
+# 另外 npm 12 起 `allow-remote` 默认 none，只放行与本环境 registry 同源的 resolved；
+# 写成 npmjs.org 时 npm 的 replace-registry-host 会自动改写成本环境 registry ⇒ 两边都对。
+
 # ⚠️ dist/ 是**故意提交**的，不要加进来。
 # 原因：openclaw 安装 git / npm 来源的插件时，要求包内自带已构建的 JS 入口
 # （src/plugins/package-entry-resolution.ts:461-477：TS 入口没有对应 JS 候选就

@@ -75,15 +75,34 @@ OpenClaw 渠道插件 —— **WhatsApp，经 EVO 平台（Evolution API）收�
 
 ```bash
 # 开发期用分支，改完 push 即可生效；演示/发布把 ref 换成 tag 钉版本
-openclaw plugins install git+https://github.com/<org>/<repo>.git#main --force
+openclaw plugins install git:github.com/ChihiroAF/openclaw-channel-whatsapp-evo@main \
+  --force --accept-capabilities
 ```
 
-### ⚠️ 两个硬要求
+> ⚠️ **spec 前缀是 `git:`，不是 `git+https://`**。这两者**不通用**，写错会极其误导：
+> `resolvePluginInstallSourcePlan` 用 `raw.trim().startsWith("git:")` 判定是否走 git 安装器
+> （`src/plugins/install-source-plan.ts:134-151`；已构建产物里的报错文案是
+> `Use openclaw plugins install git:<repo>@<ref>`）。`git+https://…` 不满足前缀 ⇒ 落到 npm 通道 ⇒
+> 被 `npm-registry-spec.ts:69-77` 的 URL/git-ref 检查拒掉，报
+> `unsupported npm spec: URLs are not allowed` —— 而日志上却显示
+> `WARNING - Installing plugin from npm registry`，很容易让人以为是网络或权限问题。
+> 支持的写法：`git:<owner>/<repo>@<ref>`、`git:github.com/<owner>/<repo>@<ref>`、
+> `git:https://github.com/<owner>/<repo>.git@<ref>`、`git:https://…/<repo>.git#<ref>`。
+
+### ⚠️ 四个硬要求
 
 1. **必须带 `--force`**：`clawhub:` 之外的来源（git / npm / 本地路径…）都会走交互式确认
    （`src/plugins/install-provenance.ts:14` 的 `NON_CLAWHUB_INSTALL_FORCE_FLAG`），
    而 post-start 是非交互 shell，不加会失败或挂住。
-2. **必须自带编译产物**：`src/plugins/package-entry-resolution.ts:461-477` 对"已安装的包"要求
+2. **必须带 `--accept-capabilities`**：第三方插件安装要过能力确认闸门
+   （`src/plugins/capability-consent.ts:262-292`：非官方来源、且插件处于启用态 ⇒ 必须有确认，
+   否则抛 `requires capability consent`）。非交互 shell 里没有 TTY 可以应答，只会直接失败。
+   这条与 ClawHub 上的 `zetrix-agentic-wallet` 完全同源，所以那行也带着它。
+3. **本包必须保持零运行时依赖**：git 安装会在克隆后跑一次 `npm install --omit=dev`
+   （`src/plugins/git-install.ts:447-468`），而 npm 12 起 `allow-remote` 默认是 `none`
+   （只放行"与本环境 registry 同源"的 `resolved`）⇒ 一旦有运行时依赖，实例就必须能下载它。
+   现在校验逻辑是手写的（`src/config-fields.ts`），**不依赖 zod**，所以那一步不下载任何包。
+4. **必须自带编译产物**：`src/plugins/package-entry-resolution.ts:461-477` 对"已安装的包"要求
    TS 入口存在已构建的 JS 候选（`./dist/index.js` 等），否则只推一条 warn 然后 `return null`
    —— **插件不加载且不报错**。所以：
 
@@ -99,6 +118,32 @@ openclaw plugins install git+https://github.com/<org>/<repo>.git#main --force
    > 对 any 化的 SDK 做类型检查只会产出假报错。真正的闸门是 `npm test` + `npm run verify`。
    > 想看 SDK 层报错用 `npm run build:checked`。
 
+### 安装失败时怎么定位
+
+| 报错 | 真实原因 | 处理 |
+|---|---|---|
+| `unsupported npm spec: URLs are not allowed`（前面还有 `WARNING - Installing plugin from npm registry`） | **spec 前缀写成了 `git+https://`**，不满足 `startsWith("git:")`，被当成 npm spec 拒掉。**不是网络/权限问题** | 改成 `git:…` 形式 |
+| `Plugin "whatsapp-evo" requires capability consent` | 少了 `--accept-capabilities` | 补上 |
+| `Install cancelled; rerun with --force` | 少了 `--force`（非交互 shell 无法应答确认） | 补上 |
+| 装完 `openclaw plugins list` 里没有它 | 多为**缺编译产物**（`dist/` 没提交） | `npm run build` 后重新提交、重装 |
+| `npm error code EALLOWREMOTE` / `Refusing to fetch "<pkg>@https://<某 registry>/…"` | lockfile 的 `resolved` 指向了**与本环境 registry 不同源**的主机。npm 12 起 `allow-remote` 默认 `none`，只豁免同源（且路径前缀匹配）的注册表 tarball | 把 `resolved` 里内网前缀整段换成 `https://registry.npmjs.org/`，再 `npm run verify:lockfile` |
+| `npm install failed: …`（其它网络类错误） | 实例访问不到 npm registry；本包零运行时依赖，正常不该发生 | 见下方换源写法 |
+| `Reason: config changed since last load` | 安装期间 `openclaw.json` 被改动（该 CLI 用延迟提交事务） | 确保 `plugins install` 前后**不要**改 `openclaw.json`；本插件自己不写配置，正常不会触发 |
+
+### ⚠️ `package-lock.json`：必须提交，且 `resolved` 必须规范化
+
+两条都是实测出来的，缺一个就会在实例里装不上：
+
+- **不能删**。冷缓存实验（registry 指向死端口）：
+  - 有 lockfile + `--omit=dev` ⇒ **exit 0，一个字节都不下载**（完全离线可装）
+  - 没有 lockfile + `--omit=dev` ⇒ **exit 1**，npm 仍要联网解析 devDependencies 的元数据
+- **不能带内网 host**。开发机的 npm registry 常被配成内网镜像，npm 会把绝对 tarball URL 冻进
+  `resolved` ⇒ ①内网主机名泄漏到公开仓库；②实例上报 `EALLOWREMOTE`。
+
+提交前处理（一行）：把内网 registry 前缀整段替换为 `https://registry.npmjs.org/`。
+npm 的 `replace-registry-host`（默认 `npmjs`）会在安装时把它改写成**目标环境自己的** registry，
+所以两边都成立。`npm run verify:lockfile`（已并入 `npm run verify`）会守住这条。
+
 配置热加载：插件在 `reload.configPrefixes` 里声明了 `channels.whatsapp-evo`，
 所以 controller 在 bind 时改写 `openclaw.json` 后，核心会 **hot reload** 本渠道
 （`src/gateway/config-reload-plan.ts` 判为 `kind: "hot"`）⇒ 重新注册入站路由，**不需要重启 Pod**。
@@ -108,10 +153,14 @@ openclaw plugins install git+https://github.com/<org>/<repo>.git#main --force
 
 ```bash
 npm install
-npm test             # tsc -p tsconfig.pure.json && node --test
-npm run verify:sdk   # 对着同级 ../openclaw 源码核对用到的 SDK 子路径与符号
-npm run verify:legacy # 检查是否残留旧方案（Meta Cloud API / whatsapp-cloud）的痕迹 legacy-ok
-npm run verify       # 上面两个一起跑
+
+npm test              # 纯逻辑层：tsc -p tsconfig.pure.json（strict）+ node --test
+npm run verify        # 四道闸门合跑：
+#   verify:sdk      对着同级 ../openclaw 源码核对用到的 SDK 子路径与符号
+#   verify:legacy   是否残留旧方案（Meta Cloud API / whatsapp-cloud）的痕迹 legacy-ok
+#   verify:imports  相对 import 是否都指向真实文件
+#   verify:lockfile lockfile 的 resolved 不得指向公共 registry 之外的主机
+npm run build         # 产出 dist/（提交前必跑）
 ```
 
 本机不安装 openclaw（体积过大且常拉不下来），所以：
@@ -135,7 +184,7 @@ cd openclaw-channel-whatsapp-evo
 git init -b main
 git add .
 git commit -m "feat: whatsapp-evo channel plugin (v0.1.0)"
-git remote add origin git@github.com:<org>/<repo>.git   # 或 https://github.com/<org>/<repo>.git
+git remote add origin git@github.com:ChihiroAF/openclaw-channel-whatsapp-evo.git   # 或 https://github.com/ChihiroAF/openclaw-channel-whatsapp-evo.git
 git push -u origin main
 ```
 
@@ -150,10 +199,18 @@ git add -A && git commit -m "..." && git push
 然后在实例里重装（**代码变更不在热加载范围内**，配置才是）：
 
 ```bash
-openclaw plugins install git+https://github.com/<org>/<repo>.git#main --force
+# ref 换掉即可（main → v0.1.0 就是钉版本）
+openclaw plugins install git:github.com/ChihiroAF/openclaw-channel-whatsapp-evo@main \
+  --force --accept-capabilities
 ```
 
-演示/发布时把 `#main` 换成 tag：`git tag v0.1.0 && git push --tags` → `…#v0.1.0`。
+⚠️ **git 安装会在克隆后跑一次 `npm install --omit=dev`**（`git-install.ts:447-468`）。
+本包**零运行时依赖**，且 lockfile 只含被 `--omit=dev` 排除掉的 devDependencies
+⇒ 那一步不下载任何东西（已用"冷缓存 + registry 指向死端口"实测：exit 0）。
+若某天又引入了运行时依赖，就会重新受 npm 12 的 `allow-remote` 闸门约束
+（症状 `EALLOWREMOTE`，见上面「安装失败时怎么定位」），届时应优先考虑手写实现而不是加依赖。
+
+演示/发布时把 `@main` 换成 tag：`git tag v0.1.0 && git push --tags` → `@v0.1.0`。
 
 ### 必须提交 / 必须忽略
 
@@ -162,8 +219,8 @@ openclaw plugins install git+https://github.com/<org>/<repo>.git#main --force
 | 源码：`index.ts` / `setup-entry.ts` / `api.ts` / `runtime-api.ts` / `src/**` | `node_modules/` |
 | **`dist/`（构建产物，故意提交）** | `dist-pure/`（单测用构建输出） |
 | `typings/`（SDK 占位声明，`npm run build` 需要） | `*.tgz`（`npm pack` 产物） |
-| `scripts/`（三个校验脚本） | `*.log` / `coverage/` / `.env*` |
-| `openclaw.plugin.json` / `package.json` / `package-lock.json` | `.DS_Store` / `Thumbs.db` / `.idea/` / `.vscode/` |
+| `scripts/`（四个校验脚本） | `*.log` / `coverage/` / `.env*` |
+| `openclaw.plugin.json` / `package.json` / **`package-lock.json`**（⚠️ 必须提交，但 `resolved` 要先规范化） | `.DS_Store` / `Thumbs.db` / `.idea/` / `.vscode/` |
 | `tsconfig*.json` / `README.md` / `.github/` | — |
 
 > **为什么 `dist/` 要提交**：实例是从 Git 直接安装的，没有构建步骤，而 openclaw 要求

@@ -25,6 +25,9 @@ jobs:
           node-version: "22"
           cache: npm
 
+      # lockfile 是提交的（它是实例里 `npm install` 能离线完成的前提），所以用 npm ci。
+      # 但必须保证它的 resolved 只指向公共 registry —— 否则实例里会报 EALLOWREMOTE，
+      # 且内网 registry 主机名会泄漏到公开仓库。见 .gitignore 与 verify:lockfile。
       - run: npm ci
 
       # 纯逻辑层：完整类型检查（strict + noUncheckedIndexedAccess）+ 单测
@@ -34,6 +37,10 @@ jobs:
       # 旧方案残留（Meta Cloud API / whatsapp-cloud 时代的标识与悬空引用）
       - name: No legacy references
         run: npm run verify:legacy
+
+      # lockfile 的 resolved 不得指向公共 registry 之外的主机（防内网地址泄漏 + EALLOWREMOTE）
+      - name: Lockfile points at the public registry
+        run: npm run verify:lockfile
 
       # 相对 import 是否都指向真实文件（纯逻辑层单测覆盖不到）
       - name: No dangling relative imports

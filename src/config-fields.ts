@@ -11,37 +11,191 @@
  * ⚠️ **刻意不提供 `webhookPath` 配置项**：入站路由 `/whatsapp-evo/webhook` 是 controller 与插件之间的
  * 固定契约（controller 侧硬编码 `WabaPluginWebhookPath`）。只在一侧做成可配置，等于开了一个
  * "两边不一致就静默收不到消息"的口子。要改路径就两边一起改常量。
+ *
+ * ⚠️ **本文件刻意零依赖（不再用 zod）**，原因见 README「安装与启用」：
+ * 插件是通过 `openclaw plugins install git:…` 装的，而该路径会在克隆后跑一次
+ * `npm install --omit=dev`（`src/plugins/git-install.ts`）。只要还有一个运行时依赖，
+ * 实例就必须能访问 npm registry —— 而 npm 12 起 `allow-remote` 默认为 `none`，
+ * lockfile 里指向别的 registry 的 `resolved` 会被判成 remote 类型直接拒装（`EALLOWREMOTE`）。
+ * 把手写校验留在本文件，既去掉了这个网络依赖，也保住了"纯逻辑可离线单测"。
  */
-import { z } from "zod";
+
+/** 校验通过后的渠道配置（= controller 写入端的字段集） */
+export type EvoChannelConfig = {
+  enabled?: boolean;
+  evoBaseUrl: string;
+  evoApiKey: string;
+  evoInstanceId?: string;
+  dmPolicy?: EvoDmPolicy;
+  allowFrom?: string[];
+};
+
+/** 核心认的三种私聊准入策略 */
+export type EvoDmPolicy = "open" | "allowlist" | "pairing";
+
+/** 字段级校验失败项（只带字段路径与消息，**从不带字段值**——凭证不落日志） */
+export type EvoConfigIssue = {
+  path: (string | number)[];
+  message: string;
+};
 
 /**
- * 渠道配置 schema。
- *
- * `strict()` 是刻意的：controller 多写一个未声明的字段会**直接报错**，
- * 而不是被静默忽略——把"写错字段名"从静默故障变成显式故障。
+ * 已声明的字段。**多写未声明的字段会报错而不是静默忽略**
+ * （等价于原 zod schema 的 `.strict()`）——把"controller 写错字段名"从静默故障变成显式故障。
  *
  * `accounts` 是核心自己管理的子键（多账号容器），由 accounts.ts 在解析前剔除，故不在此声明。
  */
-export const evoChannelConfigSchema = z
-  .object({
-    enabled: z.boolean().optional(),
-    /** EVO 平台基址，如 `https://ev-api.example.com` */
-    evoBaseUrl: z.string().min(1, "evoBaseUrl is required (e.g. https://ev-api.example.com)"),
-    /** EVO 平台 apikey（全局 key，只存在实例配置里，不进代码、不进日志） */
-    evoApiKey: z.string().min(1, "evoApiKey is required"),
-    /** EVO 实例名。正常应来自 controller 转发的 `X-Evo-Instance` 头，这里只作兜底 */
-    evoInstanceId: z.string().optional(),
-    /**
-     * 准入策略。⚠️ 核心的默认值是 `pairing`，会**静默拦掉**未配对发送者的消息且不报错，
-     * 所以 controller 必须显式写入 `open`；且光有 `open` 还不够，`allowFrom` 必须有通配项 `*`。
-     */
-    dmPolicy: z.enum(["open", "allowlist", "pairing"]).optional(),
-    /** 允许的发送者名单；`["*"]` 表示不限制（与 dmPolicy:open 配套） */
-    allowFrom: z.array(z.string()).optional(),
-  })
-  .strict();
+const DECLARED_KEYS = new Set([
+  "enabled",
+  "evoBaseUrl",
+  "evoApiKey",
+  "evoInstanceId",
+  "dmPolicy",
+  "allowFrom",
+]);
 
-export type EvoChannelConfig = z.infer<typeof evoChannelConfigSchema>;
+const DM_POLICIES: readonly string[] = ["open", "allowlist", "pairing"];
+
+function describeType(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return typeof value;
+}
+
+/** 数组元素是否全为 string */
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/** 结果类型：成功给出配置，失败给出**仅含路径与消息**的问题清单 */
+export type ParseEvoChannelConfigResult =
+  | { ok: true; data: EvoChannelConfig }
+  | { ok: false; issues: EvoConfigIssue[] };
+
+/**
+ * 校验并归一化渠道配置段。
+ *
+ * 语义与原先的 zod schema 逐条对齐（含字段顺序与必填性）：
+ * - 根必须是对象；未声明字段 → 报错（strict）
+ * - `evoBaseUrl` / `evoApiKey` 必填且非空字符串
+ * - 其余字段可选，类型不符即报错
+ */
+export function parseEvoChannelConfig(raw: unknown): ParseEvoChannelConfigResult {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return {
+      ok: false,
+      issues: [{ path: [], message: `Expected an object, received ${describeType(raw)}` }],
+    };
+  }
+  const input = raw as Record<string, unknown>;
+  const issues: EvoConfigIssue[] = [];
+
+  // 未声明字段（strict）
+  const unknownKeys = Object.keys(input).filter((key) => !DECLARED_KEYS.has(key));
+  if (unknownKeys.length > 0) {
+    issues.push({
+      path: [],
+      message: `Unrecognized key(s) in object: ${unknownKeys.map((k) => `'${k}'`).join(", ")}`,
+    });
+  }
+
+  // 必填字符串
+  const requiredStrings: Array<{ key: "evoBaseUrl" | "evoApiKey"; required: string }> = [
+    {
+      key: "evoBaseUrl",
+      required: "evoBaseUrl is required (e.g. https://ev-api.example.com)",
+    },
+    { key: "evoApiKey", required: "evoApiKey is required" },
+  ];
+  const resolvedStrings: Partial<Record<"evoBaseUrl" | "evoApiKey", string>> = {};
+  for (const { key, required } of requiredStrings) {
+    const value = input[key];
+    if (value === undefined) {
+      issues.push({ path: [key], message: "Required" });
+      continue;
+    }
+    if (typeof value !== "string") {
+      issues.push({ path: [key], message: `Expected string, received ${describeType(value)}` });
+      continue;
+    }
+    if (value.length === 0) {
+      issues.push({ path: [key], message: required });
+      continue;
+    }
+    resolvedStrings[key] = value;
+  }
+
+  // 可选：boolean
+  let enabled: boolean | undefined;
+  if (input["enabled"] !== undefined) {
+    const value = input["enabled"];
+    if (typeof value !== "boolean") {
+      issues.push({ path: ["enabled"], message: `Expected boolean, received ${describeType(value)}` });
+    } else {
+      enabled = value;
+    }
+  }
+
+  // 可选：string
+  let evoInstanceId: string | undefined;
+  if (input["evoInstanceId"] !== undefined) {
+    const value = input["evoInstanceId"];
+    if (typeof value !== "string") {
+      issues.push({
+        path: ["evoInstanceId"],
+        message: `Expected string, received ${describeType(value)}`,
+      });
+    } else {
+      evoInstanceId = value;
+    }
+  }
+
+  // 可选：枚举
+  let dmPolicy: EvoDmPolicy | undefined;
+  if (input["dmPolicy"] !== undefined) {
+    const value = input["dmPolicy"];
+    if (typeof value !== "string" || !DM_POLICIES.includes(value)) {
+      issues.push({
+        path: ["dmPolicy"],
+        message: `Invalid enum value. Expected 'open' | 'allowlist' | 'pairing', received ${JSON.stringify(value)}`,
+      });
+    } else {
+      dmPolicy = value as EvoDmPolicy;
+    }
+  }
+
+  // 可选：string[]
+  let allowFrom: string[] | undefined;
+  if (input["allowFrom"] !== undefined) {
+    const value = input["allowFrom"];
+    if (!isStringArray(value)) {
+      issues.push({
+        path: ["allowFrom"],
+        message: `Expected string[], received ${describeType(value)}`,
+      });
+    } else {
+      allowFrom = value;
+    }
+  }
+
+  if (issues.length > 0 || resolvedStrings.evoBaseUrl === undefined || resolvedStrings.evoApiKey === undefined) {
+    return { ok: false, issues };
+  }
+
+  const data: EvoChannelConfig = {
+    evoBaseUrl: resolvedStrings.evoBaseUrl,
+    evoApiKey: resolvedStrings.evoApiKey,
+    ...(enabled === undefined ? {} : { enabled }),
+    ...(evoInstanceId === undefined ? {} : { evoInstanceId }),
+    ...(dmPolicy === undefined ? {} : { dmPolicy }),
+    ...(allowFrom === undefined ? {} : { allowFrom }),
+  };
+  return { ok: true, data };
+}
 
 /** bind 时 controller 必须写入的字段（缺任何一个渠道都不工作；供测试与文档引用） */
 export const EVO_CHANNEL_CONFIG_REQUIRED_FIELDS = ["evoBaseUrl", "evoApiKey"] as const;
