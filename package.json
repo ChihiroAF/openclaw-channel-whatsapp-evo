@@ -1,6 +1,6 @@
 {
   "name": "@zetrix/openclaw-channel-whatsapp-evo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "OpenClaw channel plugin for the EVO platform (Evolution API) — receives EVO-standardized WhatsApp messages, answers through the agent runtime, and sends replies back via EVO.",
   "license": "MIT",
   "repository": {
@@ -25,7 +25,8 @@
     "src/",
     "dist/",
     "openclaw.plugin.json",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json --noCheck",
